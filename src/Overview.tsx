@@ -336,9 +336,13 @@ function Projects() {
                   <td>
                     <input className="input input-cell" type="date" value={p.due} aria-label="Due date" onChange={(e) => updateProject(p.id, { due: e.target.value })} />
                   </td>
-                  <td className="num">{mine.length}</td>
-                  <td className="num">{mine.filter((a) => a.bin === 'out').length}</td>
-                  <td className="num">
+                  <td className="num" data-label="Files">
+                    {mine.length}
+                  </td>
+                  <td className="num" data-label="Outputs">
+                    {mine.filter((a) => a.bin === 'out').length}
+                  </td>
+                  <td className="num cell-remove">
                     <ConfirmButton className="icon-btn icon-btn-danger" label={`Remove ${p.name}`} confirmLabel="Remove?" onConfirm={() => removeProject(p.id)}>
                       <Trash2 size={15} />
                     </ConfirmButton>

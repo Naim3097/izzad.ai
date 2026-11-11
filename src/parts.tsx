@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import brandLogo from './assets/brand/izzad-logo.webp';
 import { useBlobUrl } from './store';
 import { toolById, type Tool } from './tools';
@@ -7,6 +7,21 @@ import { ORIGIN_LABEL, type Asset, type Origin } from './types';
 export const ASSET_MIME = 'application/x-izzad-asset';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
+
+/** Below this width the details panel stops being a column and becomes a sheet over the work. Mirrors styles.css. */
+export const COMPACT = '(max-width: 1024px)';
+
+export function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
 
 export function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;

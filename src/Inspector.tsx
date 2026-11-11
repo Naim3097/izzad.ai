@@ -1,15 +1,30 @@
 import { ArrowDownToLine, CornerDownRight, Trash2, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { ConfirmButton, KIND_LABEL, Segmented, Thumb, ToolLogo, ext, fmtDateTime, fmtSize, kindOf } from './parts';
+import { ConfirmButton, KIND_LABEL, Segmented, Thumb, ToolLogo, cx, ext, fmtDateTime, fmtSize, kindOf } from './parts';
 import { downloadAsset, useStore } from './store';
 import { TOOLS, toolById } from './tools';
 import { ORIGINS, ORIGIN_LABEL, type Asset } from './types';
 
-/** Right-hand panel: everything about the selected asset, and where it can go next. */
-export function Inspector({ asset, onGone, children }: { asset: Asset | null; onGone: () => void; children?: ReactNode }) {
+/**
+ * Everything about the selected asset, and where it can go next.
+ * A column on wide screens; on narrow ones a sheet that slides over the work when `open`.
+ */
+export function Inspector({
+  asset,
+  open = true,
+  onClose,
+  onDeleted,
+  children,
+}: {
+  asset: Asset | null;
+  open?: boolean;
+  onClose: () => void;
+  onDeleted: () => void;
+  children?: ReactNode;
+}) {
   const { assets, projects, updateAsset, removeAsset, sendTo } = useStore();
 
-  if (!asset) return <aside className="inspector">{children}</aside>;
+  if (!asset) return <aside className="inspector is-brief">{children}</aside>;
 
   const parent = asset.parentId ? assets.find((a) => a.id === asset.parentId) : undefined;
   const usedIn = Array.from(new Set(assets.filter((a) => a.parentId === asset.id).map((a) => a.tool))).map(toolById);
@@ -17,11 +32,14 @@ export function Inspector({ asset, onGone, children }: { asset: Asset | null; on
   const format = (ext(asset.name) || 'file').toUpperCase();
 
   return (
-    <aside className="inspector" key={asset.id}>
+    <>
+    {open && <div className="sheet-backdrop" onClick={onClose} aria-hidden="true" />}
+    <aside className={cx('inspector', open && 'is-open')} key={asset.id} aria-label="File details">
+      <div className="sheet-grab" aria-hidden="true" />
       <div className="insp-scroll">
         <div className="insp-preview">
           <Thumb asset={asset} fit="contain" controls />
-          <button className="icon-btn insp-close" onClick={onGone} aria-label="Close details" title="Close">
+          <button className="icon-btn insp-close" onClick={onClose} aria-label="Close details" title="Close">
             <X size={16} />
           </button>
         </div>
@@ -161,12 +179,13 @@ export function Inspector({ asset, onGone, children }: { asset: Asset | null; on
           confirmLabel="Delete?"
           onConfirm={() => {
             removeAsset(asset.id);
-            onGone();
+            onDeleted();
           }}
         >
           <Trash2 size={15} />
         </ConfirmButton>
       </div>
     </aside>
+    </>
   );
 }

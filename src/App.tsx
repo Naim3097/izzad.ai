@@ -60,10 +60,20 @@ export function App() {
   const [projectId, setProjectId] = useState<string>(() => remembered('izzad.project', ''));
   const [theme, setTheme] = useState<'dark' | 'light'>(() => remembered('izzad.theme', 'dark', ['dark', 'light']));
   const [query, setQuery] = useState('');
+  // On a phone the search field is collapsed to an icon until asked for.
+  const [searchOpen, setSearchOpen] = useState(false);
   const [flash, setFlash] = useState<ToolId | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const dockRef = useRef<HTMLElement>(null);
 
-  useEffect(() => remember('izzad.view', view), [view]);
+  useEffect(() => {
+    remember('izzad.view', view);
+    // The phone dock scrolls sideways: keep the current tool in sight.
+    dockRef.current?.querySelector('.dock-item.is-on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [view]);
+  useEffect(() => {
+    if (searchOpen) searchRef.current?.focus();
+  }, [searchOpen]);
   useEffect(() => remember('izzad.project', projectId), [projectId]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -117,7 +127,7 @@ export function App() {
 
   return (
     <div className="app">
-      <nav className="dock" aria-label="Workspaces">
+      <nav className="dock" aria-label="Workspaces" ref={dockRef}>
         <button className="dock-brand" onClick={() => setView('overview')} aria-label="Izzad home" title="Izzad">
           <BrandMark size={40} />
         </button>
@@ -153,8 +163,11 @@ export function App() {
         ))}
       </nav>
 
-      <header className="topbar">
+      <header className={cx('topbar', searchOpen && 'is-searching')}>
         <div className="topbar-left">
+          <button className="topbar-brand" onClick={() => setView('overview')} aria-label="Izzad home">
+            <BrandMark size={30} />
+          </button>
           <span className="wordmark">izzad</span>
           <span className="crumb-sep" aria-hidden="true">
             /
@@ -176,12 +189,22 @@ export function App() {
             ref={searchRef}
             value={query}
             onChange={(e) => search(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && (setQuery(''), e.currentTarget.blur())}
+            onKeyDown={(e) => e.key === 'Escape' && (setQuery(''), setSearchOpen(false), e.currentTarget.blur())}
+            onBlur={() => !query && setSearchOpen(false)}
             placeholder="Search files, tags and notes"
             aria-label="Search the library"
+            enterKeyHint="search"
           />
-          {query ? (
-            <button className="icon-btn icon-btn-sm" onClick={() => setQuery('')} aria-label="Clear search">
+          {query || searchOpen ? (
+            <button
+              className="icon-btn icon-btn-sm"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setQuery('');
+                setSearchOpen(false);
+              }}
+              aria-label="Clear search"
+            >
               <X size={14} />
             </button>
           ) : (
@@ -190,6 +213,9 @@ export function App() {
         </label>
 
         <div className="topbar-right">
+          <button className="icon-btn search-toggle" onClick={() => setSearchOpen(true)} aria-label="Search the library">
+            <Search size={17} />
+          </button>
           <span className="t-meta topbar-usage">
             {scoped.length} {scoped.length === 1 ? 'file' : 'files'} · {fmtSize(storageBytes(scoped))}
           </span>

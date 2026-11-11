@@ -1,7 +1,7 @@
 import { ArrowRight, ArrowUpRight, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Inspector } from './Inspector';
-import { AssetRow, DropZone, ToolLogo, UploadButton } from './parts';
+import { AssetRow, COMPACT, DropZone, Segmented, ToolLogo, UploadButton, useMedia } from './parts';
 import { CanvasStage, CompareStage, GenerateStage, PromptStage, TimelineStage, type StageProps } from './stages';
 import { useStore } from './store';
 import { nextTool, type Layout, type Tool, type ToolId } from './tools';
@@ -15,6 +15,17 @@ const STAGE: Record<Layout, (p: StageProps) => JSX.Element> = {
   timeline: TimelineStage,
 };
 
+// What the centre pane is called in the phone pane switcher.
+const STAGE_NAME: Record<Layout, string> = {
+  prompt: 'Prompts',
+  generate: 'Board',
+  compare: 'Compare',
+  canvas: 'Canvas',
+  timeline: 'Sequence',
+};
+
+type Pane = 'stage' | Bin;
+
 /** Best guess at who made a file, from where it was dropped. Always editable in the inspector. */
 function guessOrigin(tool: Tool, bin: Bin, ins: Asset[]): Origin {
   if (bin === 'in') return 'hand';
@@ -27,6 +38,11 @@ function guessOrigin(tool: Tool, bin: Bin, ins: Asset[]): Origin {
 export function ToolWorkspace({ tool, projectId, onOpenTool }: { tool: Tool; projectId: string; onOpenTool: (id: ToolId) => void }) {
   const { assets, notes, addFiles, updateAsset, sendTo } = useStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // On a phone only one of the three panes is on screen; this is ignored on wider layouts.
+  const [pane, setPane] = useState<Pane>('stage');
+  // On narrow screens the details are a sheet, so "selected" and "details showing" are separate.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const compact = useMedia(COMPACT);
 
   const inProject = <T extends { projectId: string }>(x: T) => !projectId || x.projectId === projectId;
   const mine = assets.filter((a) => a.tool === tool.id && inProject(a));
@@ -35,6 +51,11 @@ export function ToolWorkspace({ tool, projectId, onOpenTool }: { tool: Tool; pro
   const toolNotes = notes.filter((n) => n.tool === tool.id && inProject(n));
   const selected = mine.find((a) => a.id === selectedId) ?? null;
   const next = nextTool(tool.id);
+
+  const inspect = (id: string | null) => {
+    setSelectedId(id);
+    setDetailsOpen(id !== null);
+  };
 
   const upload = async (files: File[], bin: Bin) => {
     // An output dropped while an input is selected is recorded as made from that input.
@@ -70,17 +91,19 @@ export function ToolWorkspace({ tool, projectId, onOpenTool }: { tool: Tool; pro
         {list.length === 0 ? (
           <UploadButton className="bin-empty" onFiles={(f) => upload(f, which)}>
             <Plus size={16} />
-            <span>Drop files or browse</span>
+            <span>
+              Add files<span className="wide-only"> or drop them here</span>
+            </span>
           </UploadButton>
         ) : (
-          list.map((a) => <AssetRow key={a.id} asset={a} selected={a.id === selectedId} onSelect={() => setSelectedId(a.id)} />)
+          list.map((a) => <AssetRow key={a.id} asset={a} selected={a.id === selectedId} onSelect={() => inspect(a.id)} />)
         )}
       </div>
     </DropZone>
   );
 
   return (
-    <div className="workspace">
+    <div className="workspace" data-pane={pane}>
       <aside className="bins">
         {bin('in', ins, tool.inLabel)}
         {bin('out', outs, tool.outLabel)}
@@ -105,18 +128,47 @@ export function ToolWorkspace({ tool, projectId, onOpenTool }: { tool: Tool; pro
               </button>
             )}
             {tool.url ? (
-              <a className="btn btn-primary" href={tool.url} target="_blank" rel="noreferrer">
-                Open {tool.name} <ArrowUpRight size={15} />
+              <a className="btn btn-primary" href={tool.url} target="_blank" rel="noreferrer" aria-label={`Open ${tool.name}`}>
+                Open <span className="not-phone">{tool.name}</span> <ArrowUpRight size={15} />
               </a>
             ) : (
-              <span className="pill pill-quiet">Opens on your desktop</span>
+              <span className="pill pill-quiet not-phone">Opens on your desktop</span>
             )}
           </div>
         </header>
-        <Stage tool={tool} ins={ins} outs={outs} notes={toolNotes} selected={selected} onSelect={setSelectedId} upload={upload} projectId={projectId} />
+
+        <div className="pane-switch">
+          <Segmented<Pane>
+            label="Show"
+            value={pane}
+            onChange={setPane}
+            options={[
+              { value: 'stage', label: STAGE_NAME[tool.layout] },
+              { value: 'in', label: `${tool.inLabel} ${ins.length}` },
+              { value: 'out', label: `${tool.outLabel} ${outs.length}` },
+            ]}
+          />
+        </div>
+
+        <Stage
+          tool={tool}
+          ins={ins}
+          outs={outs}
+          notes={toolNotes}
+          selected={selected}
+          onSelect={setSelectedId}
+          onInspect={inspect}
+          upload={upload}
+          projectId={projectId}
+        />
       </section>
 
-      <Inspector asset={selected} onGone={() => setSelectedId(null)}>
+      <Inspector
+        asset={selected}
+        open={!compact || detailsOpen}
+        onClose={() => (compact ? setDetailsOpen(false) : setSelectedId(null))}
+        onDeleted={() => inspect(null)}
+      >
         <div className="brief">
           <span className="overline">How {tool.name} fits</span>
           <div className="brief-block">

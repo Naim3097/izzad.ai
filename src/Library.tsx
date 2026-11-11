@@ -108,7 +108,7 @@ export function Library({ projectId, query, onClearQuery }: { projectId: string;
           )}
         </div>
       </section>
-      {selected && <Inspector asset={selected} onGone={() => setSelectedId(null)} />}
+      {selected && <Inspector asset={selected} onClose={() => setSelectedId(null)} onDeleted={() => setSelectedId(null)} />}
     </div>
   );
 }

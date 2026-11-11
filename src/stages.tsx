@@ -1,4 +1,4 @@
-import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Film, ImagePlus, MessageSquareText, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Film, ImagePlus, Info, MessageSquareText, Trash2 } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
 import { AssetTile, ConfirmButton, DropZone, Empty, Segmented, Thumb, canPreview, cx, fmtDate } from './parts';
 import { useStore } from './store';
@@ -14,7 +14,8 @@ export interface StageProps {
   outs: Asset[];
   notes: Note[];
   selected: Asset | null;
-  onSelect: (id: string | null) => void;
+  onSelect: (id: string | null) => void; // show it on the stage
+  onInspect: (id: string) => void; // select it and bring up its details
   upload: (files: File[], bin: Bin) => void;
   projectId: string;
 }
@@ -63,7 +64,10 @@ function Composer({ tool, projectId }: { tool: Tool; projectId: string }) {
         />
         <div className="composer-bar">
           <span className="t-cap">
-            Saved here, run in {tool.name}. <kbd>Ctrl</kbd> <kbd>↵</kbd> to save
+            Saved here, run in {tool.name}.
+            <span className="wide-only composer-keys">
+              <kbd>Ctrl</kbd> <kbd>↵</kbd> to save
+            </span>
           </span>
           <button className="btn btn-ghost" disabled={!text} onClick={save}>
             Save
@@ -143,7 +147,7 @@ function PromptChip({ note }: { note: Note }) {
   );
 }
 
-export function GenerateStage({ tool, outs, notes, selected, onSelect, upload, projectId }: StageProps) {
+export function GenerateStage({ tool, outs, notes, selected, onInspect, upload, projectId }: StageProps) {
   return (
     <div className="stage stage-generate">
       <DropZone className="stage-scroll" onFiles={(f) => upload(f, 'out')}>
@@ -152,7 +156,7 @@ export function GenerateStage({ tool, outs, notes, selected, onSelect, upload, p
         ) : (
           <div className="grid grid-lg">
             {outs.map((a) => (
-              <AssetTile key={a.id} asset={a} selected={selected?.id === a.id} onSelect={() => onSelect(a.id)} />
+              <AssetTile key={a.id} asset={a} selected={selected?.id === a.id} onSelect={() => onInspect(a.id)} />
             ))}
           </div>
         )}
@@ -243,7 +247,16 @@ export function CompareStage({ tool, ins, outs, selected, upload }: StageProps) 
 
 // ---- CANVAS: Photoshop, Illustrator -----------------------------------------
 
-export function CanvasStage({ tool, ins, outs, selected, onSelect, upload }: StageProps) {
+/** Narrow screens have no details column, so the stage offers a way to bring the sheet up. */
+function DetailsButton({ asset, onInspect }: { asset: Asset; onInspect: (id: string) => void }) {
+  return (
+    <button className="pill pill-btn viewport-details compact-only" onClick={() => onInspect(asset.id)}>
+      <Info size={13} /> Details
+    </button>
+  );
+}
+
+export function CanvasStage({ tool, ins, outs, selected, onSelect, onInspect, upload }: StageProps) {
   const all = [...outs, ...ins];
   const linking = selected?.bin === 'in';
   return (
@@ -261,6 +274,7 @@ export function CanvasStage({ tool, ins, outs, selected, onSelect, upload }: Sta
           />
         )}
         <span className="pill viewport-hint">{linking ? `Drop the export — it links to ${selected!.name}` : 'Drop a file to add it as a source'}</span>
+        {selected && <DetailsButton asset={selected} onInspect={onInspect} />}
       </DropZone>
       {all.length > 0 && (
         <div className="filmstrip">
@@ -285,7 +299,7 @@ const ASPECTS = [
   { value: '16 / 9', label: '16:9' },
 ];
 
-export function TimelineStage({ tool, ins, selected, onSelect, upload }: StageProps) {
+export function TimelineStage({ tool, ins, selected, onSelect, onInspect, upload }: StageProps) {
   const { updateAsset } = useStore();
   const [aspect, setAspect] = useState(ASPECTS[0].value);
 
@@ -311,6 +325,7 @@ export function TimelineStage({ tool, ins, selected, onSelect, upload }: StagePr
         <div className="viewport-tools">
           <Segmented label="Frame" value={aspect} options={ASPECTS} onChange={setAspect} />
         </div>
+        {selected && <DetailsButton asset={selected} onInspect={onInspect} />}
       </DropZone>
       <div className="timeline">
         <div className="timeline-head">
