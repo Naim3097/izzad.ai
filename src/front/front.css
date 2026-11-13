@@ -1,0 +1,993 @@
+/* Izzad: the front door.
+   One picture, full bleed, and a single column under the avatar: the offer in its voice,
+   the box to answer it in, and the tools it will use.
+   Palette lifted from the character: teal wall, orange paint, bone, respirator mint, denim. */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #06303d;
+  overflow: hidden;
+}
+
+.iz {
+  --iz-ink: #041a22;
+  --iz-plate: rgba(3, 22, 29, 0.74);
+  --iz-plate-2: rgba(239, 233, 223, 0.07);
+  --iz-line: rgba(239, 233, 223, 0.14);
+  --iz-bone: #efe9df;
+  --iz-bone-2: #bccbce;
+  --iz-bone-3: #8ba5ab;
+  --iz-orange: #f26a1b;
+  --iz-orange-hot: #ff8b3d;
+
+  --iz-block: 'Bungee', 'Anton', sans-serif;
+  --iz-display: 'Anton', 'Arial Narrow', Impact, sans-serif;
+  --iz-text: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --iz-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  position: fixed;
+  inset: 0;
+  color: var(--iz-bone);
+  font-family: var(--iz-text);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.iz *,
+.iz *::before,
+.iz *::after {
+  box-sizing: border-box;
+}
+
+.iz button,
+.iz input {
+  font: inherit;
+  color: inherit;
+}
+
+.iz :focus-visible {
+  outline: 2px solid var(--iz-orange-hot);
+  outline-offset: 3px;
+}
+
+.iz-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- the stage -------------------------------------------------------------- */
+
+.iz-stage {
+  position: absolute;
+  inset: 0;
+  background: #0a4d63 url('./assets/wall.webp') center / cover no-repeat;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.iz-stage.over-avatar {
+  cursor: grab;
+}
+
+.iz-stage.over-avatar:active {
+  cursor: grabbing;
+}
+
+.iz-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.is-ready .iz-canvas {
+  opacity: 1;
+}
+
+.is-flat .iz-canvas {
+  display: none;
+}
+
+/* The same picture, flat: what you see for the moment before the model is in, or without WebGL. */
+.iz-flat-letters,
+.iz-flat-figure {
+  position: absolute;
+  left: var(--cx, 50%);
+  top: var(--cy, 42%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.iz-flat-letters {
+  width: min(calc(var(--tall, 420px) * 1.8), 94vw);
+  filter: drop-shadow(10px 16px 12px rgba(0, 12, 17, 0.6));
+}
+
+.iz-flat-figure {
+  height: var(--tall, 420px);
+}
+
+.is-loading .iz-flat-figure {
+  filter: brightness(0) blur(3px);
+  opacity: 0.3;
+  animation: iz-breathe 1.4s ease-in-out infinite alternate;
+}
+
+.is-flat .iz-flat-figure {
+  filter: drop-shadow(14px 24px 18px rgba(0, 12, 17, 0.55));
+  animation: iz-float 5s ease-in-out infinite alternate;
+}
+
+/* ---- top bar: who this is, and what is on the table --------------------------- */
+
+.iz-bar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px;
+  pointer-events: none;
+  text-shadow: 0 1px 10px rgba(0, 14, 19, 0.8);
+}
+
+.iz-bar > * {
+  pointer-events: auto;
+}
+
+.iz-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: inherit;
+  text-decoration: none;
+  font-family: var(--iz-block);
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+.iz-brand img {
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.iz-free {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.iz-free i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--iz-bone-3);
+}
+
+.iz-free i.is-on {
+  border-color: var(--iz-orange-hot);
+  background: var(--iz-orange-hot);
+}
+
+.iz-free i:last-of-type {
+  margin-right: 3px;
+}
+
+.iz-free.is-spent {
+  color: var(--iz-bone-2);
+}
+
+/* ---- the deck: one column under the avatar ---------------------------------- */
+
+.iz-deck {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr); /* one column that never grows past the screen */
+  justify-items: center;
+  gap: 14px;
+  padding: 0 20px max(16px, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+/* a floor of shade so words and icons hold against the wall, without boxing them in */
+.iz-deck::before {
+  content: '';
+  position: absolute;
+  inset: -90px 0 0 0;
+  background: linear-gradient(to top, rgba(1, 15, 20, 0.88) 0%, rgba(1, 15, 20, 0.7) 50%, rgba(1, 15, 20, 0) 100%);
+  pointer-events: none;
+}
+
+.iz-deck > * {
+  position: relative;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+/* what it says: the offer, then whatever it has to add */
+.iz-talk {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  max-width: min(1040px, 100%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.iz-who {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  font-family: var(--iz-block);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: var(--iz-orange-hot);
+  text-transform: uppercase;
+}
+
+/* three bars that jump once when it starts a new line */
+.iz-who i {
+  width: 2px;
+  height: 9px;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  transform: scaleY(0.3);
+  animation: iz-speak 0.5s ease-out 2;
+}
+
+.iz-who i:first-of-type {
+  margin-left: 5px;
+}
+
+.iz-who i:nth-of-type(2) {
+  animation-delay: 0.08s;
+}
+
+.iz-who i:nth-of-type(3) {
+  animation-delay: 0.16s;
+}
+
+.iz-line {
+  margin: 0;
+  font-size: clamp(22px, 1.25vw + 12px, 34px);
+  font-weight: 640;
+  line-height: 1.14;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+  text-shadow: 0 2px 20px rgba(0, 12, 17, 0.8);
+  animation: iz-say 0.34s var(--iz-ease) both;
+}
+
+.iz-line b {
+  font-weight: 760;
+  color: var(--iz-orange-hot);
+}
+
+.iz-aside {
+  margin: 0;
+  max-width: 720px;
+  min-height: 1.45em; /* its line is held, so the box below does not jump when it changes */
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--iz-bone-2);
+  text-wrap: balance;
+  text-shadow: 0 1px 12px rgba(0, 12, 17, 0.8);
+  animation: iz-say 0.3s var(--iz-ease) both;
+}
+
+.iz-aside.is-remark {
+  color: var(--iz-bone);
+}
+
+.iz-aside b {
+  font-weight: 650;
+  color: var(--iz-bone);
+}
+
+/* ---- the box: a link in, or an email at the gate ----------------------------- */
+
+.iz-composer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(600px, 100%);
+  height: 58px;
+  padding: 0 8px 0 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 233, 223, 0.3);
+  background: rgba(3, 22, 29, 0.78);
+  backdrop-filter: blur(22px) saturate(1.3);
+  box-shadow: 0 18px 44px rgba(0, 12, 17, 0.45);
+  transition:
+    border-color 0.16s,
+    box-shadow 0.16s;
+}
+
+.iz-composer:focus-within,
+.iz-composer.is-nudged {
+  border-color: var(--iz-orange-hot);
+  box-shadow:
+    0 18px 44px rgba(0, 12, 17, 0.45),
+    0 0 0 4px rgba(255, 139, 61, 0.2);
+}
+
+.iz-composer > svg {
+  flex: none;
+  color: var(--iz-bone-3);
+}
+
+.iz-composer input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.iz-composer input:focus-visible {
+  outline: 0; /* the pill itself shows the focus */
+}
+
+.iz-composer input::placeholder {
+  color: var(--iz-bone-3);
+}
+
+.iz-composer button {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--iz-orange);
+  color: #1a0a00;
+  cursor: pointer;
+  transition:
+    background 0.16s,
+    transform 0.16s var(--iz-ease),
+    opacity 0.16s;
+}
+
+.iz-composer button.is-wide {
+  width: auto;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.iz-composer button:hover:not(:disabled) {
+  background: var(--iz-orange-hot);
+  transform: scale(1.05);
+}
+
+.iz-composer button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* a link it can use is in the box: the button says so */
+.iz-composer button.is-ready {
+  animation: iz-ready 1.3s ease-in-out infinite;
+}
+
+/* what was sent, on its way from the box to the avatar's hand */
+.iz-flyer {
+  position: fixed;
+  z-index: 5;
+  translate: 0 -50%;
+  transform-origin: left center;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--iz-bone);
+  color: var(--iz-ink);
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 10px 26px rgba(0, 12, 17, 0.5);
+}
+
+.iz-composer.is-gate {
+  padding-left: 22px;
+}
+
+/* what to make */
+.iz-asks {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.iz-ask {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 233, 223, 0.24);
+  background: rgba(3, 22, 29, 0.5);
+  backdrop-filter: blur(14px);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.16s,
+    border-color 0.16s,
+    color 0.16s;
+}
+
+.iz-ask:hover {
+  border-color: rgba(239, 233, 223, 0.6);
+}
+
+.iz-ask.is-on {
+  background: var(--iz-bone);
+  border-color: var(--iz-bone);
+  color: var(--iz-ink);
+}
+
+/* ---- the thread: what was asked, and what came back --------------------------- */
+
+.iz-answer {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: min(600px, 100%);
+  margin-top: -14px;
+  transition:
+    grid-template-rows 0.42s var(--iz-ease),
+    margin-top 0.42s var(--iz-ease);
+}
+
+.iz-answer.is-open {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+}
+
+.iz-answer-fold {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.iz-thread {
+  padding: 14px 16px 18px;
+  border-radius: 24px;
+  border: 1px solid var(--iz-line);
+  background: var(--iz-plate);
+  backdrop-filter: blur(22px) saturate(1.3);
+  animation: iz-say 0.4s var(--iz-ease) both;
+}
+
+.iz-thread header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+/* with the pieces up on the wall, the thread is just the exchange: no plate round it */
+.iz-thread.is-slim {
+  padding: 0;
+  border: 0;
+  background: none;
+  backdrop-filter: none;
+}
+
+.iz-thread.is-slim header {
+  margin-bottom: 0;
+}
+
+/* the visitor's own message, set to the right like any chat */
+.iz-you {
+  order: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 78%;
+  margin: 0;
+  padding: 7px 8px 7px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--iz-bone);
+  color: var(--iz-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.iz-you span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iz-you em {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(4, 26, 34, 0.1);
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.iz-flag {
+  order: 1;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--iz-bone-3);
+  white-space: nowrap;
+}
+
+.iz-frames {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+}
+
+.iz-frame {
+  position: relative;
+  height: clamp(112px, 16vh, 190px);
+  min-width: 0;
+  display: grid;
+  border-radius: 10px;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+}
+
+.iz-frame-face {
+  position: relative;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+
+.iz-frame strong {
+  font-family: var(--iz-display);
+  font-weight: 400;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.iz-frame-face > span {
+  font-size: 11px;
+  color: var(--iz-bone-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.iz-frame em {
+  margin-top: 6px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--iz-bone-2);
+}
+
+/* in the queue: the frame is there, the work is not */
+.iz-frame.is-queued {
+  background: linear-gradient(100deg, rgba(239, 233, 223, 0.05) 30%, rgba(239, 233, 223, 0.13) 50%, rgba(239, 233, 223, 0.05) 70%) 0 0 / 300% 100%;
+  animation: iz-sweep 1.5s linear infinite;
+}
+
+.iz-frame.is-waiting {
+  border: 1.5px dashed rgba(239, 233, 223, 0.34);
+  background: rgba(239, 233, 223, 0.04);
+}
+
+.iz-frame.is-ready {
+  box-shadow: 0 10px 24px rgba(0, 12, 17, 0.5);
+}
+
+/* the avatar's spray has just reached it: what is on the board opens out from where the paint landed */
+.iz-frame.is-waiting .iz-frame-face,
+.iz-frame.is-ready .iz-frame-face {
+  animation: iz-reveal 0.6s var(--iz-ease) both;
+}
+
+.iz-frame.is-waiting .iz-frame-face::after,
+.iz-frame.is-ready .iz-frame-face::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 139, 61, 0.8), rgba(255, 139, 61, 0) 62%);
+  pointer-events: none;
+  animation: iz-hit 0.75s ease-out both;
+}
+
+.iz-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ---- on the wall: the pieces, pasted up either side of the avatar ------------- */
+
+.iz-wallposts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.iz-wallposts .iz-frame {
+  --gap: calc(var(--tall, 400px) * 0.9); /* clear of the smoke */
+  position: absolute;
+  top: var(--cy, 40%);
+  /* as tall as most of the character, or as wide as the room beside it allows */
+  width: min(calc(var(--tall, 400px) * 0.72 * var(--r, 0.8)), calc(50vw - var(--gap) - 28px));
+  height: auto;
+  border-radius: 6px;
+  pointer-events: auto;
+  box-shadow: 0 18px 40px rgba(0, 12, 17, 0.5);
+}
+
+.iz-wallposts .iz-frame:nth-child(1) {
+  right: calc(50% + var(--gap));
+  transform: translateY(-50%) rotate(-2.2deg);
+}
+
+.iz-wallposts .iz-frame:nth-child(2) {
+  left: calc(50% + var(--gap));
+  transform: translateY(-50%) rotate(1.8deg);
+}
+
+/* an empty board is still a board: solid enough that the lettering behind does not muddy it */
+.iz-wallposts .iz-frame.is-queued,
+.iz-wallposts .iz-frame.is-waiting {
+  background-color: rgba(3, 22, 29, 0.9);
+}
+
+/* ---- the tool belt: how the work gets made, and how far along it is ----------- */
+
+.iz-belt {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  max-width: 100%;
+  padding-top: 2px;
+}
+
+.iz-belt-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--iz-bone-3);
+}
+
+.iz-belt-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 26px;
+  max-width: 100%;
+}
+
+.iz-belt-stage {
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  transition: opacity 0.3s ease;
+}
+
+/* the stage name sits on a rule that spans its tools, so the row reads as a pipeline */
+.iz-belt-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--iz-bone-3);
+  transition: color 0.3s ease;
+}
+
+.iz-belt-label::before,
+.iz-belt-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  margin: 0 3px;
+  background: rgba(239, 233, 223, 0.2);
+  transition: background 0.3s ease;
+}
+
+.iz-belt-tools {
+  display: flex;
+  gap: 10px;
+}
+
+/* during a run: what is still to come sits back, the stage at work is lit */
+.iz-belt.is-running .iz-belt-stage:not(.is-done):not(.is-active) {
+  opacity: 0.38;
+}
+
+.iz-belt-stage.is-active .iz-belt-label,
+.iz-belt-stage.is-done .iz-belt-label {
+  color: var(--iz-orange-hot);
+}
+
+.iz-belt-stage.is-active .iz-belt-label::before,
+.iz-belt-stage.is-active .iz-belt-label::after,
+.iz-belt-stage.is-done .iz-belt-label::before,
+.iz-belt-stage.is-done .iz-belt-label::after {
+  background: rgba(255, 139, 61, 0.6);
+}
+
+.iz-belt-stage.is-active .iz-tool-icon {
+  animation: iz-work 0.9s ease-in-out infinite alternate;
+}
+
+.iz-belt-stage.is-active .iz-tool:nth-child(2) .iz-tool-icon {
+  animation-delay: 0.3s;
+}
+
+.iz-tool {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  width: 62px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+
+.iz-tool-icon {
+  display: block;
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(0, 12, 17, 0.45);
+  transition: transform 0.22s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+.iz-tool:hover .iz-tool-icon,
+.iz-tool:focus-visible .iz-tool-icon {
+  transform: translateY(-6px) scale(1.08);
+}
+
+.iz-tool-name {
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--iz-bone-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.16s;
+}
+
+.iz-tool:hover .iz-tool-name,
+.iz-tool:focus-visible .iz-tool-name {
+  color: #fff;
+}
+
+.iz-logo {
+  flex: none;
+  display: block;
+  overflow: hidden;
+}
+
+.iz-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---- motion ------------------------------------------------------------------ */
+
+@keyframes iz-say {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes iz-speak {
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes iz-reveal {
+  from {
+    clip-path: circle(0% at 50% 50%);
+  }
+  to {
+    clip-path: circle(100% at 50% 50%);
+  }
+}
+
+@keyframes iz-hit {
+  from {
+    opacity: 1;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+@keyframes iz-ready {
+  50% {
+    box-shadow: 0 0 0 7px rgba(255, 139, 61, 0.28);
+  }
+}
+
+@keyframes iz-sweep {
+  to {
+    background-position: -300% 0;
+  }
+}
+
+@keyframes iz-work {
+  from {
+    transform: translateY(0);
+    box-shadow:
+      0 8px 18px rgba(0, 12, 17, 0.45),
+      0 0 0 0 rgba(255, 139, 61, 0);
+  }
+  to {
+    transform: translateY(-7px);
+    box-shadow:
+      0 14px 22px rgba(0, 12, 17, 0.45),
+      0 0 0 3px rgba(255, 139, 61, 0.75);
+  }
+}
+
+@keyframes iz-breathe {
+  to {
+    opacity: 0.42;
+  }
+}
+
+@keyframes iz-float {
+  to {
+    translate: 0 -14px;
+  }
+}
+
+/* ---- smaller screens: same column, tighter ----------------------------------- */
+
+@media (max-width: 760px) {
+  .iz-deck {
+    gap: 11px;
+    padding-inline: 0;
+  }
+
+  .iz-talk,
+  .iz-answer,
+  .iz-composer {
+    width: calc(100% - 28px);
+  }
+
+  .iz-aside {
+    font-size: 13.5px;
+    min-height: 2.9em;
+  }
+
+  .iz-composer {
+    height: 54px;
+    padding-left: 16px;
+  }
+
+  .iz-composer.is-gate {
+    padding-left: 18px;
+  }
+
+  .iz-composer button.is-wide {
+    padding: 0 14px;
+    font-size: 13px;
+  }
+
+  /* the chips and the belt run off the edge and scroll, rather than wrapping into a block */
+  .iz-asks,
+  .iz-belt-row {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-inline: 14px;
+    scroll-padding-inline: 14px;
+  }
+
+  .iz-asks::-webkit-scrollbar,
+  .iz-belt-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .iz-asks > :first-child,
+  .iz-belt-row > :first-child {
+    margin-left: auto;
+  }
+
+  .iz-asks > :last-child,
+  .iz-belt-row > :last-child {
+    margin-right: auto;
+  }
+
+  .iz-belt {
+    width: 100%;
+  }
+
+  .iz-belt-row {
+    gap: 16px;
+    padding-top: 8px; /* room for a lifted icon */
+  }
+
+  .iz-belt-tools {
+    gap: 6px;
+  }
+
+  .iz-tool {
+    width: 56px;
+  }
+
+  .iz-thread {
+    padding: 12px 12px 14px;
+    border-radius: 20px;
+  }
+
+  .iz-frames {
+    gap: 10px;
+  }
+}
+
+/* short windows: the belt keeps its icons and drops its captions */
+@media (max-height: 700px) {
+  .iz-belt-title,
+  .iz-belt-label {
+    display: none;
+  }
+
+  .iz-deck {
+    gap: 10px;
+  }
+
+  .iz-aside {
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iz *,
+  .iz *::before,
+  .iz *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,10 @@
+{"cam": [-0.06, -1, 0.16],
+ "rot": [
+  ["Hips","Z",-10], ["Hips","X",4], ["Hips","Y",-9],
+  ["Spine02","Y",-4], ["Spine01","X",2], ["Spine","Z",-5],
+  ["neck","X",-2], ["Head","Z",-10], ["Head","X",2], ["Head","Y",-13],
+  ["RightArm","Y",10], ["RightArm","Z",22], ["RightForeArm","Z",24], ["RightHand","Z",26], ["RightHand","Y",26],
+  ["LeftArm","Y",-12], ["LeftArm","Z",14], ["LeftForeArm","Z",-10], ["LeftHand","Y",40],
+  ["RightUpLeg","X",-56], ["RightUpLeg","Y",30], ["RightLeg","X",70], ["RightFoot","X",-12], ["RightFoot","Z",-24],
+  ["LeftUpLeg","X",10], ["LeftUpLeg","Y",7], ["LeftLeg","X",18], ["LeftFoot","X",52], ["LeftFoot","Z",14]
+ ]}

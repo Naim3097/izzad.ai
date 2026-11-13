@@ -7,4 +7,10 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   server: { port: 5173, strictPort: true },
+  build: {
+    rollupOptions: {
+      // Two pages: the front page (the funnel) and the designer's workspace.
+      input: { index: 'index.html', workspace: 'workspace.html' },
+    },
+  },
 });

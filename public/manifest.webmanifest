@@ -2,7 +2,7 @@
   "name": "Izzad",
   "short_name": "Izzad",
   "description": "One workspace for a designer's whole pipeline.",
-  "start_url": ".",
+  "start_url": "workspace.html",
   "display": "standalone",
   "background_color": "#0b0b0d",
   "theme_color": "#0b0b0d",
