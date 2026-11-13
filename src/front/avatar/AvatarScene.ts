@@ -26,10 +26,13 @@ export interface Frame {
 }
 
 export interface AvatarOptions {
-  avatarUrl: string;
-  smokeUrl: string;
+  /** The models, already on their way down: the page starts fetching them before this code has loaded. */
+  avatar: Promise<ArrayBuffer>;
+  smoke: Promise<ArrayBuffer>;
   wallUrl: string;
   lettersUrl: string;
+  /** A phone: the same picture, drawn with less (see Stage for how that is decided). */
+  lite: boolean;
   reducedMotion: boolean;
   onReady: () => void;
   onError: (reason: string) => void;
@@ -48,6 +51,37 @@ const LETTERS_ASPECT = 561 / 2000;
 const SMOKE_SCALE = 1.06;
 /** Draw order for the flat layers on the wall, back to front. Shadows go last so they fall across the paint too. */
 const ON_WALL = { mist: 1, paint: 2, shadows: 3, spray: 4 };
+
+// ---- what the device can carry ------------------------------------------------
+// The glass smoke shows what is behind it, and three.js gets that by drawing everything behind it a second
+// time, at full size. Frosted glass has no use for full size: the pass is drawn at this fraction of the
+// canvas and the blur is corrected to match (see mountSmoke), so the picture is the same for far less work.
+const GLASS = { full: 0.5, lite: 0.4 };
+// When frames run long the scene gives up pixels, a step at a time. Each step caps the pixel ratio.
+const STEPS = [1.5, 1.25, 1, 0.85, 0.7];
+const SLOW = 1 / 48; // a mean frame longer than this is worth acting on, unless the screen itself is slower
+const WINDOW = 45; // frames per reading
+const GFX_KEY = 'izzad.gfx'; // the step this device settled on, so the next visit starts there
+const WEEK = 7 * 24 * 3600 * 1000;
+
+function savedStep(): number {
+  try {
+    const [step, at] = (localStorage.getItem(GFX_KEY) ?? '').split('@').map(Number);
+    if (!Number.isFinite(step) || !Number.isFinite(at)) return 0;
+    // an old reading gets one step back, in case it was taken on a bad day (hot phone, low battery)
+    return clamp(Math.round(step) - (Date.now() - at > WEEK ? 1 : 0), 0, STEPS.length - 1);
+  } catch {
+    return 0;
+  }
+}
+
+function saveStep(step: number) {
+  try {
+    localStorage.setItem(GFX_KEY, `${step}@${Date.now()}`);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 /** Bones that carry procedural motion on top of the clip. */
 const LAYERED = ['Spine', 'neck', 'Head', 'RightArm', 'RightForeArm', 'RightHand', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightUpLeg', 'RightLeg', 'LeftUpLeg', 'LeftLeg'];
@@ -167,6 +201,16 @@ export class AvatarScene {
   private disposed = false;
   private ready = false;
 
+  // quality: the pixel-ratio step in use, and the running read of frame times that moves it
+  private step = savedStep();
+  private pacing = { sum: 0, n: 0, settle: 90, slow: 0, before: 0, wasted: 0, undo: 0, locked: false };
+  private gaps: number[] = []; // frame intervals with nothing drawn yet: the screen's own pace
+  private cadence = 1 / 60;
+  private glassScale = { value: 1 }; // shared with the glass shader
+  private glassView = new THREE.Vector4();
+  private aniso = 1;
+  private backdrop: Promise<unknown>; // the wall and lettering, in and decoded
+
   // scratch
   private v1 = new THREE.Vector3();
   private v2 = new THREE.Vector3();
@@ -188,7 +232,10 @@ export class AvatarScene {
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setClearColor(0x06303d, 1);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // the glass pass renders the scene twice
+    this.renderer.setPixelRatio(this.ratio());
+    this.glassScale.value = opts.lite ? GLASS.lite : GLASS.full;
+    // sharp textures at a slant cost a phone more than they show at this size
+    this.aniso = Math.min(this.renderer.capabilities.getMaxAnisotropy(), opts.lite ? 4 : 16);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.06;
@@ -204,7 +251,7 @@ export class AvatarScene {
     const key = new THREE.DirectionalLight(0xfff4e6, 3.3);
     key.position.set(-2.8, 3.4, 4.2);
     key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.mapSize.setScalar(opts.lite ? 1024 : 2048); // a phone draws the character a third the size
     key.shadow.camera.left = -2.4;
     key.shadow.camera.right = 2.4;
     key.shadow.camera.top = 2.4;
@@ -220,10 +267,8 @@ export class AvatarScene {
     this.scene.add(key, rim, kick, new THREE.HemisphereLight(0xd8eef5, 0x123f4d, 0.5));
 
     // The wall and lettering are finished art: shown as painted, with the scene's shadows laid over them.
-    const loader = new THREE.TextureLoader();
-    const wallMap = loader.load(opts.wallUrl);
-    wallMap.colorSpace = THREE.SRGBColorSpace;
-    this.wall = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: wallMap, toneMapped: false }));
+    const wall = picture(opts.wallUrl);
+    this.wall = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: wall.map, toneMapped: false }));
     this.wall.position.z = WALL_Z;
     // Everything flat on the wall is drawn in a fixed order (ON_WALL), not by distance: with the camera tilted,
     // distance puts a mark high on the wall after the shadow layer in front of it, and the mark is lost.
@@ -232,7 +277,11 @@ export class AvatarScene {
     this.shadowCatcher.receiveShadow = true;
     this.shadowCatcher.renderOrder = ON_WALL.shadows;
     this.scene.add(this.wall, this.shadowCatcher);
-    loader.load(opts.lettersUrl, (map) => this.mountLetters(map));
+    const letters = picture(opts.lettersUrl);
+    // The scene is not shown until its wall is up: the canvas covers the page's own wall, so a late
+    // texture would be a black one. The lettering can fail without taking the rest down with it.
+    this.backdrop = Promise.all([wall.loaded, letters.loaded.then(() => this.mountLetters(letters.map)).catch(() => undefined)]);
+    this.backdrop.catch(() => undefined); // load() reports it
 
     const mist = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.05), new THREE.MeshBasicMaterial({ map: mistTexture(), transparent: true, depthWrite: false, toneMapped: false }));
     mist.position.set(BOX.x + 0.26, BOX.y + 0.32, WALL_Z + 0.02);
@@ -266,6 +315,17 @@ export class AvatarScene {
     canvas.addEventListener('webglcontextlost', this.onContextLost);
     document.addEventListener('visibilitychange', this.onVisibility);
 
+    // While the models load, time the frames the screen hands out with nothing to draw. A page held to
+    // 30 a second (a power saver, an embedded view) is not a slow GPU, and should not be treated as one.
+    let last = 0;
+    const idle = (now: number) => {
+      if (this.ready || this.disposed) return;
+      if (last && now - last < 250) this.gaps.push((now - last) / 1000);
+      last = now;
+      requestAnimationFrame(idle);
+    };
+    requestAnimationFrame(idle);
+
     this.load();
   }
 
@@ -275,13 +335,22 @@ export class AvatarScene {
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
     try {
-      const [avatar, smoke] = await Promise.all([loader.loadAsync(this.opts.avatarUrl), loader.loadAsync(this.opts.smokeUrl)]);
+      const [avatar, smoke] = await Promise.all([this.opts.avatar.then((b) => loader.parseAsync(b, '')), this.opts.smoke.then((b) => loader.parseAsync(b, '')), this.backdrop]);
       if (this.disposed) return;
       this.mountAvatar(avatar);
       this.mountSmoke(smoke);
+      // Build the shaders before the first frame, without holding the page up while the driver works:
+      // once for the screen, once for the glass pass, which draws into a linear buffer and so needs its own.
+      await this.renderer.compileAsync(this.scene, this.camera);
+      const linear = new THREE.WebGLRenderTarget(1, 1);
+      this.renderer.setRenderTarget(linear);
+      await this.renderer.compileAsync(this.scene, this.camera);
+      this.renderer.setRenderTarget(null);
+      linear.dispose();
+      if (this.disposed) return;
+      if (this.gaps.length >= 10) this.cadence = this.gaps.sort((a, b) => a - b)[this.gaps.length >> 1];
       this.ready = true;
       this.bornAt = this.time;
-      this.renderer.compile(this.scene, this.camera);
       this.renderOnce();
       this.start();
       this.opts.onReady();
@@ -292,8 +361,7 @@ export class AvatarScene {
 
   private mountLetters(map: THREE.Texture) {
     if (this.disposed) return;
-    map.colorSpace = THREE.SRGBColorSpace;
-    map.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    map.anisotropy = this.aniso;
     // Cut out rather than blended, so the lettering stays in the opaque pass and shows through the glass.
     const material = new THREE.MeshBasicMaterial({ map, alphaTest: 0.5, alphaToCoverage: true, toneMapped: false });
     this.letters = new THREE.Mesh(new THREE.PlaneGeometry(1, LETTERS_ASPECT), material);
@@ -303,7 +371,6 @@ export class AvatarScene {
     );
     this.scene.add(this.lettersShadow, this.letters);
     this.fitBackdrop();
-    if (this.ready && !this.running) this.renderOnce();
   }
 
   private mountAvatar(gltf: GLTF) {
@@ -320,7 +387,7 @@ export class AvatarScene {
         mesh.frustumCulled = false; // skinned bounds are not worth trusting
         for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
           const std = m as THREE.MeshStandardMaterial;
-          if (std.map) std.map.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+          if (std.map) std.map.anisotropy = this.aniso;
         }
       }
     });
@@ -351,14 +418,27 @@ export class AvatarScene {
       specularIntensity: 1,
       envMapIntensity: 1.9,
     });
+    // three.js picks how blurred the view through the glass is from the width of the buffer it was drawn
+    // into. That buffer is now a fraction of the canvas (GLASS), so the blur is worked out from the full
+    // width and then eased by the same fraction: what reaches the screen is what it was at full size.
+    const blur = 'float lod = log2( transmissionSamplerSize.x ) * applyIorToRoughness( roughness, ior );';
+    const pars = THREE.ShaderChunk.transmission_pars_fragment;
+    if (import.meta.env.DEV && !pars.includes(blur)) console.warn('izzad: the glass blur line moved in three.js; the smoke will read softer than intended');
     glass.onBeforeCompile = (shader) => {
-      // a brighter edge where the surface turns away, which is what gives the reference its drawn outline
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <opaque_fragment>',
-        `float izzadRim = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 2.4);
+      shader.uniforms.izzadGlassScale = this.glassScale;
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <transmission_pars_fragment>',
+          'uniform float izzadGlassScale;\n' +
+            pars.replace(blur, 'float lod = max( 0.0, log2( transmissionSamplerSize.x / izzadGlassScale ) * applyIorToRoughness( roughness, ior ) + log2( izzadGlassScale ) );'),
+        )
+        // a brighter edge where the surface turns away, which is what gives the reference its drawn outline
+        .replace(
+          '#include <opaque_fragment>',
+          `float izzadRim = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 2.4);
         outgoingLight += vec3(0.9, 0.94, 0.95) * izzadRim * 0.46;
         #include <opaque_fragment>`,
-      );
+        );
     };
     glass.customProgramCacheKey = () => 'izzad-glass';
 
@@ -368,7 +448,7 @@ export class AvatarScene {
     });
     const painted = meshes.map((m) => (m.material as THREE.MeshStandardMaterial).map).find(Boolean);
     if (painted) {
-      painted.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+      painted.anisotropy = this.aniso;
       glass.map = painted;
       // a little of the painting shows by its own light, so the pearl reads as painted whatever the key light is doing
       glass.emissiveMap = painted;
@@ -392,9 +472,81 @@ export class AvatarScene {
     this.frameTo = frame;
     if (!this.ready) this.frame = { ...frame };
     this.renderer.setSize(this.width, this.height, false);
+    this.sizeGlass();
     this.camera.aspect = this.width / this.height;
     this.applyFrame();
     if (this.ready && !this.running) this.renderOnce();
+  }
+
+  /** The pixel ratio a step allows on this screen. */
+  private ratio(step = this.step) {
+    return Math.min(window.devicePixelRatio || 1, STEPS[step]);
+  }
+
+  /**
+   * Size the pass behind the glass. three.js sizes it from `camera.viewport` when a camera has one (it is
+   * how the eyes of a headset are drawn) and otherwise from the canvas; nothing else reads it on a plain
+   * camera, so it is the one handle on that pass this version of three.js gives us.
+   */
+  private sizeGlass() {
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.glassView.set(0, 0, Math.max(1, Math.round(size.x * this.glassScale.value)), Math.max(1, Math.round(size.y * this.glassScale.value)));
+    (this.camera as THREE.PerspectiveCamera & { viewport?: THREE.Vector4 }).viewport = this.glassView;
+  }
+
+  private setStep(step: number) {
+    this.step = step;
+    this.renderer.setPixelRatio(this.ratio());
+    this.sizeGlass();
+    this.pacing.settle = 30; // let the new buffers settle before reading frame times again
+    saveStep(step);
+  }
+
+  /**
+   * Keep the motion smooth by giving up pixels when frames run long. Read in windows; two slow windows
+   * running take a step down. If two steps in a row buy nothing, the GPU was never the limit (a power
+   * saver holding the page to 30 a second, a throttled tab): the steps are undone and the scene is left alone.
+   */
+  private pace(dt: number) {
+    const p = this.pacing;
+    if (p.locked) return;
+    if (dt > 0.25) {
+      // a stall (a tab switch, a long task) says nothing about the GPU
+      p.sum = p.n = 0;
+      p.settle = 30;
+      return;
+    }
+    if (p.settle > 0) {
+      p.settle--;
+      return;
+    }
+    p.sum += dt;
+    if (++p.n < WINDOW) return;
+    const mean = p.sum / p.n;
+    p.sum = p.n = 0;
+    if (p.before) {
+      p.wasted = mean > p.before * 0.92 ? p.wasted + 1 : 0;
+      p.before = 0;
+      if (p.wasted >= 2) {
+        p.locked = true;
+        this.setStep(p.undo);
+        return;
+      }
+    }
+    if (mean < Math.max(SLOW, this.cadence * 1.3)) {
+      p.slow = 0;
+      return;
+    }
+    if (++p.slow < 2) return;
+    for (let next = this.step + 1; next < STEPS.length; next++) {
+      if (this.ratio(next) > this.ratio() - 0.01) continue; // this screen is already at or under that step
+      if (!p.wasted) p.undo = this.step;
+      p.before = mean;
+      p.slow = 1; // already known to be slow: the next slow window steps again without waiting for a second
+      this.setStep(next);
+      return;
+    }
+    p.slow = 0;
   }
 
   /** Re-seat the character; the camera eases to the new framing. */
@@ -599,6 +751,7 @@ export class AvatarScene {
   private start() {
     if (this.running || !this.ready || this.disposed || document.hidden || !this.visible) return;
     this.running = true;
+    this.pacing.settle = Math.max(this.pacing.settle, 30);
     this.clock.getDelta();
     this.raf = requestAnimationFrame(this.tick);
   }
@@ -610,7 +763,9 @@ export class AvatarScene {
 
   private tick = () => {
     if (!this.running) return;
-    this.update(Math.min(this.clock.getDelta(), 1 / 20));
+    const dt = this.clock.getDelta();
+    this.pace(dt);
+    this.update(Math.min(dt, 1 / 20));
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.tick);
   };
@@ -976,8 +1131,8 @@ export class AvatarScene {
       this.m1.makeScale(size, size, size).setPosition(d.p);
       this.drops.setMatrixAt(n++, this.m1);
     }
+    if (n || this.drops.count) this.drops.instanceMatrix.needsUpdate = true;
     this.drops.count = n;
-    this.drops.instanceMatrix.needsUpdate = true;
 
     for (let i = this.splats.length - 1; i >= 0; i--) {
       const s = this.splats[i];
@@ -1044,6 +1199,29 @@ function asTexture(c: HTMLCanvasElement) {
   return t;
 }
 
+/**
+ * A finished image as a texture. It is decoded before the GPU is handed it, so the upload does not stall
+ * a frame. decode() can hang in a page that is not being drawn, so it is given a moment and no more.
+ */
+function picture(url: string): { map: THREE.Texture; loaded: Promise<void> } {
+  const map = new THREE.Texture();
+  map.colorSpace = THREE.SRGBColorSpace;
+  const img = new Image();
+  const loaded = new Promise<void>((resolve, reject) => {
+    img.onload = () => {
+      const decoded = typeof img.decode === 'function' ? img.decode().catch(() => undefined) : undefined;
+      Promise.race([decoded, new Promise((r) => setTimeout(r, 300))]).then(() => {
+        map.image = img;
+        map.needsUpdate = true;
+        resolve();
+      });
+    };
+    img.onerror = () => reject(new Error(`could not load ${url}`));
+  });
+  img.src = url;
+  return { map, loaded };
+}
+
 /** The fine orange spray caught on the wall behind the hood. */
 function mistTexture() {
   const [c, g] = canvas2d(512, 430);
@@ -1062,14 +1240,57 @@ function mistTexture() {
   return asTexture(c);
 }
 
+/** Blur a canvas's coverage in place: three box passes each way, which is as near a Gaussian as matters. */
+function soften(g: CanvasRenderingContext2D, w: number, h: number, radius: number) {
+  const img = g.getImageData(0, 0, w, h);
+  const d = img.data;
+  const a = new Float32Array(w * h);
+  const b = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) a[i] = d[i * 4 + 3];
+  const span = radius * 2 + 1;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0;
+        for (let k = Math.max(0, x - radius); k <= Math.min(w - 1, x + radius); k++) sum += a[y * w + k];
+        b[y * w + x] = sum / span;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0;
+        for (let k = Math.max(0, y - radius); k <= Math.min(h - 1, y + radius); k++) sum += b[k * w + x];
+        a[y * w + x] = sum / span;
+      }
+    }
+  }
+  for (let i = 0; i < w * h; i++) {
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 0;
+    d[i * 4 + 3] = a[i];
+  }
+  g.putImageData(img, 0, 0);
+}
+
 /** The lettering's own drop shadow, down and to the right as in the reference. */
 function shadowTexture(letters: HTMLImageElement) {
   const [c, g] = canvas2d(1080, Math.round(1080 * LETTERS_ASPECT * (1.24 / 1.08)));
   const w = 1000;
   const h = w * LETTERS_ASPECT;
-  g.filter = 'blur(9px)';
-  g.drawImage(letters, (c.width - w) / 2, (c.height - h) / 2, w, h);
-  g.filter = 'none';
+  if (typeof (g as { filter?: unknown }).filter === 'string') {
+    g.filter = 'blur(9px)';
+    g.drawImage(letters, (c.width - w) / 2, (c.height - h) / 2, w, h);
+    g.filter = 'none';
+  } else {
+    // Safari's canvas has had no blur filter, so the blur is done by hand: at a quarter of the size, where
+    // three passes of a box two pixels either way come out as the same nine-pixel softness.
+    const [half, hg] = canvas2d(w / 2, Math.ceil((w / 2) * LETTERS_ASPECT));
+    hg.drawImage(letters, 0, 0, half.width, half.height);
+    const [quarter, qg] = canvas2d(Math.ceil(c.width / 4), Math.ceil(c.height / 4));
+    qg.drawImage(half, (c.width - w) / 8, (c.height - h) / 8, w / 4, h / 4);
+    soften(qg, quarter.width, quarter.height, 2);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(quarter, 0, 0, c.width, c.height);
+  }
   g.globalCompositeOperation = 'source-in';
   g.fillStyle = '#00090d';
   g.fillRect(0, 0, c.width, c.height);
@@ -1129,7 +1350,8 @@ function runTexture() {
   const [c, g] = canvas2d(16, 128);
   g.fillStyle = '#fff';
   g.beginPath();
-  g.roundRect(1, 0, 14, 128, 7);
+  if (g.roundRect) g.roundRect(1, 0, 14, 128, 7);
+  else g.rect(1, 0, 14, 128); // older Safari: a square-ended run is better than no avatar
   g.fill();
   return asTexture(c);
 }

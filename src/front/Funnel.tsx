@@ -164,7 +164,7 @@ export function Funnel() {
   const lastPointer = useRef(0);
   const pasted = useRef(false);
   const acked = useRef('');
-  const ruler = useRef<CanvasRenderingContext2D | null>(null);
+  const ruler = useRef<{ g: CanvasRenderingContext2D; of: HTMLInputElement | null } | null>(null);
 
   useEffect(() => () => run.current?.abort(), []);
   useEffect(() => {
@@ -228,18 +228,28 @@ export function Funnel() {
   const watchCaret = (el: HTMLInputElement) => {
     typing.current = true;
     const r = el.getBoundingClientRect();
-    const g = (ruler.current ??= document.createElement('canvas').getContext('2d'));
+    if (!ruler.current) {
+      const g = document.createElement('canvas').getContext('2d');
+      if (g) ruler.current = { g, of: null };
+    }
     let x = r.left + 8;
-    if (g) {
-      const cs = getComputedStyle(el);
-      g.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-      x = r.left + Math.min(r.width - 8, g.measureText(el.value.slice(0, el.selectionStart ?? el.value.length)).width);
+    const rule = ruler.current;
+    if (rule) {
+      if (rule.of !== el) {
+        // the box's font is read once per box, not on every key
+        const cs = getComputedStyle(el);
+        rule.g.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        rule.of = el;
+      }
+      x = r.left + Math.min(r.width - 8, rule.g.measureText(el.value.slice(0, el.selectionStart ?? el.value.length)).width);
     }
     stage.current?.attend({ x, y: r.top + r.height / 2 });
   };
   const leaveBox = () => {
     typing.current = false;
     stage.current?.attend(null);
+    // iOS slides the page up to clear the keyboard and can leave it there; the page never scrolls, so put it back
+    window.scrollTo(0, 0);
   };
 
   // A link it can use has landed in the box. Pasted, it says so at once; typed, once the typing pauses.

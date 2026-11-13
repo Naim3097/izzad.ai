@@ -2,6 +2,7 @@
 // gets made; during a run it is the progress bar, lighting up stage by stage.
 
 import { Check } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { STAGES, TOOLS, type Stage, type Tool, type ToolId } from '../tools';
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
@@ -37,6 +38,16 @@ export function Logo({ tool, size = 36 }: { tool: Tool; size?: number }) {
 export function Belt({ at, finished, tell }: { at: Stage | null; finished: boolean; tell: Tell }) {
   const reached = at ? STAGES.indexOf(at) : -1;
   const running = at !== null && !finished;
+  // A mouse leaves when it is done reading; a finger lifts at once. After a tap the line stays up for a
+  // few seconds and then clears itself.
+  const linger = useRef(0);
+  const say = (t: Tool, el: Element) => tell(`*${t.name}.* ${JOB[t.id]}`, el);
+  const hush = () => {
+    window.clearTimeout(linger.current);
+    linger.current = 0;
+    tell(null);
+  };
+  useEffect(() => () => window.clearTimeout(linger.current), []);
   return (
     <nav className={cx('iz-belt', running && 'is-running')} aria-label="How Izzad builds it: the tools, in order">
       <span className="iz-belt-title">How I build it</span>
@@ -57,10 +68,14 @@ export function Belt({ at, finished, tell }: { at: Stage | null; finished: boole
                     type="button"
                     className="iz-tool"
                     aria-label={`${t.name}. ${JOB[t.id]}`}
-                    onPointerEnter={(e) => tell(`*${t.name}.* ${JOB[t.id]}`, e.currentTarget)}
-                    onPointerLeave={() => tell(null)}
-                    onFocus={(e) => tell(`*${t.name}.* ${JOB[t.id]}`, e.currentTarget)}
-                    onBlur={() => tell(null)}
+                    onPointerEnter={(e) => {
+                      window.clearTimeout(linger.current);
+                      linger.current = e.pointerType === 'mouse' ? 0 : window.setTimeout(hush, 3600);
+                      say(t, e.currentTarget);
+                    }}
+                    onPointerLeave={(e) => e.pointerType === 'mouse' && hush()}
+                    onFocus={(e) => !linger.current && say(t, e.currentTarget)}
+                    onBlur={() => !linger.current && hush()}
                   >
                     <span className="iz-tool-icon">
                       <Logo tool={t} size={44} />

@@ -2,6 +2,7 @@
 // Until the model is in (or if WebGL is not available) the same picture is laid out flat in CSS beneath it.
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react';
+import avatarLiteUrl from './assets/avatar-lite.glb?url';
 import avatarUrl from './assets/avatar.glb?url';
 import posterUrl from './assets/avatar-poster.webp';
 import lettersUrl from './assets/izzad-letters.webp';
@@ -37,6 +38,26 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const BAR = 56;
 /** The can never sprays the same colour twice running. */
 const PAINTS = ['#f26a1b', '#efe9df', '#f5b31a', '#8fe0cf'];
+
+/**
+ * A phone gets the lighter build of the scene: the same picture from a model with a quarter of the
+ * triangles, a smaller pass behind the glass and smaller shadows. Touch-first and small is the test; a
+ * tablet or a touch laptop has the room and the GPU for the full one. `?gfx=lite` or `?gfx=full` forces it.
+ */
+function isPhone(): boolean {
+  const forced = new URLSearchParams(window.location.search).get('gfx');
+  if (forced === 'lite' || forced === 'full') return forced === 'lite';
+  return window.matchMedia('(pointer: coarse)').matches && Math.min(window.screen.width, window.screen.height, window.innerWidth, window.innerHeight) < 700;
+}
+
+function bytes(url: string): Promise<ArrayBuffer> {
+  const file = fetch(url).then((r) => {
+    if (!r.ok) throw new Error(`${r.status} ${url}`);
+    return r.arrayBuffer();
+  });
+  file.catch(() => undefined); // the scene reports a failed load; this only keeps the console quiet until it does
+  return file;
+}
 
 export const Stage = forwardRef<StageHandle, Props>(function Stage({ below, onPoke, onSpray }, ref) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -106,9 +127,14 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage({ below, onPo
       const tall = clamp(Math.min(room * 0.93, s.width * (s.width < 700 ? 0.76 : 0.52)), 170, 980);
       const centreY = BAR + room * 0.5;
       const host = stage.parentElement ?? stage; // the page root, so the rest of the page can hang things beside the character
-      host.style.setProperty('--cx', `${s.width / 2}px`);
-      host.style.setProperty('--cy', `${centreY}px`);
-      host.style.setProperty('--tall', `${tall}px`);
+      // every element on the page inherits these, so they are only written when the seat has really moved
+      const put = (name: string, px: number) => {
+        const value = `${Math.round(px)}px`;
+        if (host.style.getPropertyValue(name) !== value) host.style.setProperty(name, value);
+      };
+      put('--cx', s.width / 2);
+      put('--cy', centreY);
+      put('--tall', tall);
       return { w: s.width, h: s.height, frame: { cx: 0.5, cy: centreY / s.height, h: tall / s.height } };
     };
     let size = { w: 0, h: 0 };
@@ -125,14 +151,19 @@ export const Stage = forwardRef<StageHandle, Props>(function Stage({ below, onPo
     layout();
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // The models are the long download. They start now, alongside the code that will draw them, not after it.
+    const lite = isPhone();
+    const avatar = bytes(lite ? avatarLiteUrl : avatarUrl);
+    const smoke = bytes(smokeUrl);
     import('./avatar/AvatarScene')
       .then(({ AvatarScene }) => {
         if (dead) return;
         scene = new AvatarScene(canvas, {
-          avatarUrl,
-          smokeUrl,
+          avatar,
+          smoke,
           wallUrl,
           lettersUrl,
+          lite,
           reducedMotion,
           onReady: () => !dead && setState('ready'),
           onError: () => !dead && setState('flat'),

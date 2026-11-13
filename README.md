@@ -34,6 +34,18 @@ Then open http://localhost:5173 for the front page, or http://localhost:5173/wor
 
 The front page remembers in the browser that the two free pieces were used. Add `?reset` to the address to clear that while testing.
 
+## Phones
+
+The front page draws the same scene on a phone with less work:
+
+- A lighter copy of the avatar (`avatar-lite.glb`, 39k triangles against 94k), a smaller pass behind the glass smoke and smaller shadows. Used on touch screens under 700 px on their short side.
+- If frames still run long, the scene lowers its pixel ratio a step at a time and remembers the step for the next visit.
+- Nothing blurs the canvas behind the input and the chips on a touch screen.
+
+Add `?gfx=lite` or `?gfx=full` to the address to force either build of the scene on any device.
+
+If `avatar.glb` is rebuilt, rebuild the phone copy from it with `pipeline/avatar/build_lite.mjs` (the command is at the top of the file).
+
 ## Build and deploy
 
 ```bash
@@ -51,8 +63,8 @@ The workspace keeps everything in the visitor's own browser (IndexedDB). There i
 ## Where things live
 
 - `src/front/` — the front page. `Funnel.tsx` is the page and its copy, `Stage.tsx` and `avatar/AvatarScene.ts` are the 3D scene, `Belt.tsx` is the row of tools, `engine.ts` is the seam for the real engine, `front.css` is all of its styling.
-- `src/front/assets/` — the avatar and smoke models, the wall and the lettering.
-- `pipeline/avatar/` — the Blender scripts that build those models (rig, pose, spray can, smoke relief).
+- `src/front/assets/` — the avatar (full and phone copies) and smoke models, the wall and the lettering.
+- `pipeline/avatar/` — the scripts that build those models: Blender for the rig, pose, spray can and smoke relief, Node for the phone copy.
 - `src/tools.ts` — the tool registry: names, order, stages, URLs, logos. Both pages read it. Edit this to add or reorder tools.
 - `src/styles.css` — the workspace's design tokens (colour, type, radii, motion) and styling.
 - `src/stages.tsx` — the centre area of each tool workspace (prompt log, generation grid, before/after, canvas, timeline).

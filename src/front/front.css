@@ -9,6 +9,7 @@ body {
   height: 100%;
   background: #06303d;
   overflow: hidden;
+  overscroll-behavior: none; /* the page never scrolls, so a drag must not rubber-band it or pull to refresh */
 }
 
 .iz {
@@ -34,6 +35,7 @@ body {
   font-size: 14px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
   overflow: hidden;
 }
 
@@ -208,6 +210,7 @@ body {
   gap: 14px;
   padding: 0 20px max(16px, env(safe-area-inset-bottom));
   pointer-events: none;
+  touch-action: manipulation; /* taps land at once: no waiting to see if it is a double-tap zoom */
 }
 
 /* a floor of shade so words and icons hold against the wall, without boxing them in */
@@ -360,6 +363,7 @@ body {
 }
 
 .iz-composer button {
+  position: relative;
   flex: none;
   width: 42px;
   height: 42px;
@@ -384,9 +388,11 @@ body {
   white-space: nowrap;
 }
 
-.iz-composer button:hover:not(:disabled) {
-  background: var(--iz-orange-hot);
-  transform: scale(1.05);
+@media (hover: hover) {
+  .iz-composer button:hover:not(:disabled) {
+    background: var(--iz-orange-hot);
+    transform: scale(1.05);
+  }
 }
 
 .iz-composer button:disabled {
@@ -394,8 +400,16 @@ body {
   cursor: default;
 }
 
-/* a link it can use is in the box: the button says so */
-.iz-composer button.is-ready {
+/* A link it can use is in the box: the button says so. The ring is a layer of its own that only fades
+   and grows, so the pulse is left to the compositor and nothing is repainted while it runs. */
+.iz-composer button.is-ready::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 7px rgba(255, 139, 61, 0.28);
+  opacity: 0;
+  pointer-events: none;
   animation: iz-ready 1.3s ease-in-out infinite;
 }
 
@@ -444,8 +458,10 @@ body {
     color 0.16s;
 }
 
-.iz-ask:hover {
-  border-color: rgba(239, 233, 223, 0.6);
+@media (hover: hover) {
+  .iz-ask:hover {
+    border-color: rgba(239, 233, 223, 0.6);
+  }
 }
 
 .iz-ask.is-on {
@@ -596,10 +612,20 @@ body {
   color: var(--iz-bone-2);
 }
 
-/* in the queue: the frame is there, the work is not */
+/* in the queue: the frame is there, the work is not. The sheen is a strip that slides across. */
 .iz-frame.is-queued {
-  background: linear-gradient(100deg, rgba(239, 233, 223, 0.05) 30%, rgba(239, 233, 223, 0.13) 50%, rgba(239, 233, 223, 0.05) 70%) 0 0 / 300% 100%;
-  animation: iz-sweep 1.5s linear infinite;
+  background-image: linear-gradient(rgba(239, 233, 223, 0.05), rgba(239, 233, 223, 0.05));
+}
+
+.iz-frame.is-queued::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -300%;
+  width: 300%;
+  background: linear-gradient(100deg, rgba(239, 233, 223, 0) 30%, rgba(239, 233, 223, 0.08) 50%, rgba(239, 233, 223, 0) 70%);
+  animation: iz-sweep 0.75s linear infinite;
 }
 
 .iz-frame.is-waiting {
@@ -752,7 +778,17 @@ body {
   animation: iz-work 0.9s ease-in-out infinite alternate;
 }
 
-.iz-belt-stage.is-active .iz-tool:nth-child(2) .iz-tool-icon {
+.iz-belt-stage.is-active .iz-tool-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 3px rgba(255, 139, 61, 0.75);
+  animation: iz-glow 0.9s ease-in-out infinite alternate;
+}
+
+.iz-belt-stage.is-active .iz-tool:nth-child(2) .iz-tool-icon,
+.iz-belt-stage.is-active .iz-tool:nth-child(2) .iz-tool-icon::after {
   animation-delay: 0.3s;
 }
 
@@ -768,15 +804,26 @@ body {
 }
 
 .iz-tool-icon {
+  position: relative;
   display: block;
   border-radius: 12px;
   box-shadow: 0 8px 18px rgba(0, 12, 17, 0.45);
   transition: transform 0.22s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 
-.iz-tool:hover .iz-tool-icon,
 .iz-tool:focus-visible .iz-tool-icon {
   transform: translateY(-6px) scale(1.08);
+}
+
+/* only where there is a pointer to hover with: on a touch screen a hover sticks after the tap */
+@media (hover: hover) {
+  .iz-tool:hover .iz-tool-icon {
+    transform: translateY(-6px) scale(1.08);
+  }
+
+  .iz-tool:hover .iz-tool-name {
+    color: #fff;
+  }
 }
 
 .iz-tool-name {
@@ -790,7 +837,6 @@ body {
   transition: color 0.16s;
 }
 
-.iz-tool:hover .iz-tool-name,
 .iz-tool:focus-visible .iz-tool-name {
   color: #fff;
 }
@@ -843,29 +889,32 @@ body {
 }
 
 @keyframes iz-ready {
+  from,
+  to {
+    opacity: 0;
+    transform: scale(0.8);
+  }
   50% {
-    box-shadow: 0 0 0 7px rgba(255, 139, 61, 0.28);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
 @keyframes iz-sweep {
   to {
-    background-position: -300% 0;
+    transform: translateX(100%);
   }
 }
 
 @keyframes iz-work {
-  from {
-    transform: translateY(0);
-    box-shadow:
-      0 8px 18px rgba(0, 12, 17, 0.45),
-      0 0 0 0 rgba(255, 139, 61, 0);
-  }
   to {
     transform: translateY(-7px);
-    box-shadow:
-      0 14px 22px rgba(0, 12, 17, 0.45),
-      0 0 0 3px rgba(255, 139, 61, 0.75);
+  }
+}
+
+@keyframes iz-glow {
+  from {
+    opacity: 0;
   }
 }
 
@@ -963,6 +1012,29 @@ body {
 
   .iz-frames {
     gap: 10px;
+  }
+}
+
+/* Touch screens. Blurring what is behind an element means blurring the live canvas again on every
+   frame, which a phone pays for in dropped frames; against the dark floor of the deck it barely shows.
+   The plates go a little more solid instead. */
+@media (pointer: coarse) {
+  .iz-composer,
+  .iz-ask,
+  .iz-thread {
+    backdrop-filter: none;
+  }
+
+  .iz-composer {
+    background: rgba(3, 22, 29, 0.9);
+  }
+
+  .iz-ask:not(.is-on) {
+    background: rgba(3, 22, 29, 0.72);
+  }
+
+  .iz-thread:not(.is-slim) {
+    background: rgba(3, 22, 29, 0.88);
   }
 }
 
